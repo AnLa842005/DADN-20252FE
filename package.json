@@ -1,0 +1,18 @@
+{
+  "name": "yolo-farm",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:backend": "npm --workspace @yolo-farm/backend run start:dev",
+    "build:backend": "npm --workspace @yolo-farm/backend run build",
+    "start:backend": "npm --workspace @yolo-farm/backend run start:prod"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": ""
+}
