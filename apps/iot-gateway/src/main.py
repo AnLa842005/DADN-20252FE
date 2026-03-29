@@ -11,21 +11,15 @@ from dotenv import load_dotenv
 
 from mqtt_client import MqttClient, load_mqtt_config
 from serial_bridge import SerialBridge
-from topics import LogicalFeedKey, parse_keys_csv
+from topics import (
+    ALL_LOGICAL_KEYS,
+    LogicalFeedKey,
+    get_feed_key,
+    parse_keys_csv,
+)
 
 
-ALLOWED: list[LogicalFeedKey] = [
-    "temp",
-    "air_humidity",
-    "soil_humidity",
-    "light",
-    "fan",
-    "pump",
-    "speaker",
-    "rgb",
-    "status",
-    "stream",
-]
+REVERSE_FEED_KEY_MAPPING = {get_feed_key(lk): lk for lk in ALL_LOGICAL_KEYS}
 
 
 def resolve_logical_from_feed(topic: str) -> LogicalFeedKey | None:
@@ -33,24 +27,8 @@ def resolve_logical_from_feed(topic: str) -> LogicalFeedKey | None:
     prefix = f"{username}/feeds/"
     if not topic.startswith(prefix):
         return None
-    feed_key = topic[len(prefix) :]
-
-    mapping: dict[LogicalFeedKey, str] = {
-        "temp": os.getenv("FEED_TEMP_KEY", "yolo-farm-temp"),
-        "air_humidity": os.getenv("FEED_AIR_HUMIDITY_KEY", "yolo-farm-air-humidity"),
-        "soil_humidity": os.getenv("FEED_SOIL_HUMIDITY_KEY", "yolo-farm-soil-humidity"),
-        "light": os.getenv("FEED_LIGHT_KEY", "yolo-farm-light"),
-        "fan": os.getenv("FEED_FAN_KEY", "yolo-farm-fan"),
-        "pump": os.getenv("FEED_PUMP_KEY", "yolo-farm-pump"),
-        "speaker": os.getenv("FEED_SPEAKER_KEY", "yolo-farm-speaker"),
-        "rgb": os.getenv("FEED_RGB_KEY", "yolo-farm-rgb"),
-        "status": os.getenv("FEED_STATUS_KEY", "yolo-farm-status"),
-        "stream": os.getenv("FEED_STREAM_KEY", "yolo-farm-stream"),
-    }
-    for logical, fk in mapping.items():
-        if fk == feed_key:
-            return logical
-    return None
+    feed_key_from_topic = topic[len(prefix) :]
+    return REVERSE_FEED_KEY_MAPPING.get(feed_key_from_topic)
 
 
 def main() -> int:
@@ -65,7 +43,7 @@ def main() -> int:
 
     publish_keys = parse_keys_csv(
         os.getenv("GATEWAY_PUBLISH_FEEDS", "temp,air_humidity,soil_humidity,light,status,stream"),
-        ALLOWED,
+        ALL_LOGICAL_KEYS,
     )
 
     bridge = SerialBridge(port=serial_port, baud=serial_baud)
@@ -121,4 +99,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

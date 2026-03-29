@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import queue
 import threading
 import time
@@ -9,6 +10,7 @@ from typing import Any
 
 import serial  # type: ignore[import-untyped]
 
+logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SerialTelemetry:
@@ -76,8 +78,11 @@ class SerialBridge:
                         try:
                             _ = self._out.get_nowait()
                         except queue.Empty:
-                            pass
-            except Exception:
+                            # Should not happen if queue was full, but good to be safe
+                            continue
+                        logger.warning("Serial queue was full, dropped oldest item.")
+            except Exception as e:
+                logger.error(f"Error in serial RX loop: {e}", exc_info=True)
                 time.sleep(0.25)
 
     def _parse_line(self, raw: str) -> list[tuple[str, str]]:
