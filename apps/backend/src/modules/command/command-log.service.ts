@@ -2,7 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { InjectModel } from "@nestjs/mongoose";
 import { Model } from "mongoose";
 import { CommandLog } from "./entity/command-log.schema";
-import { LogicalFeedKey } from "./mqtt.topics";
+import { LogicalFeedKey } from "../mqtt/mqtt.topics";
 
 @Injectable()
 export class CommandLogService {

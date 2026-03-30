@@ -1,6 +1,6 @@
 import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
 import { HydratedDocument } from "mongoose";
-import { LogicalFeedKey } from "../mqtt.topics";
+import { LogicalFeedKey } from "../../mqtt/mqtt.topics";
 
 export type CommandLogDocument = HydratedDocument<CommandLog>;
 
