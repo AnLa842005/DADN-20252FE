@@ -1,6 +1,6 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
-import { TelemetryType, ThresholdLevel } from './telemetry.types';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { HydratedDocument } from "mongoose";
+import { SENSOR_TYPES, SensorType, ThresholdLevel } from "../telemetry.types";
 
 export type AlertDocument = HydratedDocument<Alert>;
 
@@ -9,18 +9,18 @@ export class Alert {
   @Prop({
     required: true,
     type: String,
-    enum: ['temp', 'air_humidity', 'soil_humidity', 'light'],
+    enum: SENSOR_TYPES,
     index: true,
   })
-  type!: TelemetryType;
+  type!: SensorType;
 
   @Prop({
     required: true,
     type: String,
-    enum: ['low', 'high'],
+    enum: ["low", "high"],
     index: true,
   })
-  level!: Exclude<ThresholdLevel, 'normal' | 'unknown'>;
+  level!: Exclude<ThresholdLevel, "normal" | "unknown">;
 
   @Prop({ required: true })
   value!: number;
@@ -37,4 +37,3 @@ export class Alert {
 
 export const AlertSchema = SchemaFactory.createForClass(Alert);
 AlertSchema.index({ type: 1, triggeredAt: -1 });
-

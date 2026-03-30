@@ -1,10 +1,10 @@
-import { Module } from '@nestjs/common';
-import { MongooseModule } from '@nestjs/mongoose';
-import { RealtimeModule } from '../realtime/realtime.module';
-import { TelemetryController } from './telemetry.controller';
-import { Alert, AlertSchema } from './alert.schema';
-import { Telemetry, TelemetrySchema } from './telemetry.schema';
-import { TelemetryService } from './telemetry.service';
+import { Module } from "@nestjs/common";
+import { MongooseModule } from "@nestjs/mongoose";
+import { RealtimeModule } from "../realtime/realtime.module";
+import { TelemetryController } from "./telemetry.controller";
+import { TelemetryService } from "./telemetry.service";
+import { Alert, AlertSchema } from "./entity/alert.schema";
+import { Telemetry, TelemetrySchema } from "./entity/telemetry.schema";
 
 @Module({
   imports: [
@@ -19,4 +19,3 @@ import { TelemetryService } from './telemetry.service';
   exports: [TelemetryService],
 })
 export class TelemetryModule {}
-
