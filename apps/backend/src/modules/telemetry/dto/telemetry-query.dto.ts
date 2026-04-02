@@ -1,23 +1,12 @@
-import { IsIn, IsISO8601, IsOptional } from 'class-validator';
-
-const allowed = [
-  'temp',
-  'air_humidity',
-  'soil_humidity',
-  'light',
-  'fan',
-  'pump',
-  'speaker',
-  'rgb',
-  'status',
-  'stream',
-] as const;
-export type TelemetryTypeDto = (typeof allowed)[number];
+import { IsIn, IsISO8601, IsOptional } from "class-validator";
+import { ALL_LOGICAL_KEYS, LogicalFeedKey } from "../../mqtt/mqtt.topics";
 
 export class TelemetryQueryDto {
   @IsOptional()
-  @IsIn(allowed)
-  type?: TelemetryTypeDto;
+  // Use the single source of truth for validation
+  @IsIn(ALL_LOGICAL_KEYS as unknown as string[])
+  // Use the central type definition
+  type?: LogicalFeedKey;
 
   @IsOptional()
   @IsISO8601()
@@ -27,4 +16,3 @@ export class TelemetryQueryDto {
   @IsISO8601()
   to?: string;
 }
-

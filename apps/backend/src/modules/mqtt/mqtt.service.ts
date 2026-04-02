@@ -1,13 +1,28 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
-import mqtt, { MqttClient } from 'mqtt';
-import { TelemetryService } from '../telemetry/telemetry.service';
-import { CommandLogService } from './command-log.service';
-import { getAdafruitFeedTopic, getSubscribeKeys, LogicalFeedKey } from './mqtt.topics';
+import {
+  Injectable,
+  Logger,
+  OnModuleDestroy,
+  OnModuleInit,
+} from "@nestjs/common";
+import mqtt, { MqttClient } from "mqtt";
+import { TelemetryService } from "../telemetry/telemetry.service";
+import { CommandLogService } from "../command/command-log.service";
+import {
+  ALL_LOGICAL_KEYS,
+  getAdafruitFeedTopic,
+  getFeedKey,
+  getSubscribeKeys,
+  LogicalFeedKey,
+} from "./mqtt.topics";
 
 @Injectable()
 export class MqttService implements OnModuleInit, OnModuleDestroy {
   private readonly logger = new Logger(MqttService.name);
   private client: MqttClient | null = null;
+  // Create a reverse mapping for efficient lookups
+  private readonly reverseFeedKeyMap = new Map(
+    ALL_LOGICAL_KEYS.map((lk) => [getFeedKey(lk), lk]),
+  );
 
   constructor(
     private readonly telemetryService: TelemetryService,
@@ -15,15 +30,19 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   ) {}
 
   onModuleInit() {
-    const broker = process.env.ADAFRUIT_IO_BROKER ?? 'io.adafruit.com';
+    const broker = process.env.ADAFRUIT_IO_BROKER ?? "io.adafruit.com";
     const port = Number(process.env.ADAFRUIT_IO_PORT ?? 1883);
-    const useTls = String(process.env.ADAFRUIT_IO_USE_TLS ?? 'false').toLowerCase() === 'true';
-    const protocol = useTls ? 'mqtts' : 'mqtt';
+    const useTls =
+      String(process.env.ADAFRUIT_IO_USE_TLS ?? "false").toLowerCase() ===
+      "true";
+    const protocol = useTls ? "mqtts" : "mqtt";
 
-    const username = process.env.ADAFRUIT_IO_USERNAME ?? '';
-    const password = process.env.ADAFRUIT_IO_KEY ?? '';
+    const username = process.env.ADAFRUIT_IO_USERNAME ?? "";
+    const password = process.env.ADAFRUIT_IO_KEY ?? "";
     if (!username || !password) {
-      this.logger.warn('Missing ADAFRUIT_IO_USERNAME / ADAFRUIT_IO_KEY. MQTT will not connect.');
+      this.logger.warn(
+        "Missing ADAFRUIT_IO_USERNAME / ADAFRUIT_IO_KEY. MQTT will not connect.",
+      );
       return;
     }
 
@@ -36,22 +55,25 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       clean: true,
     });
 
-    this.client.on('connect', () => {
+    this.client.on("connect", () => {
       this.logger.log(`MQTT connected: ${url}`);
 
       const keys = getSubscribeKeys();
       const topics = keys.map(getAdafruitFeedTopic);
       this.client?.subscribe(topics, { qos: 0 }, (err) => {
-        if (err) this.logger.error(`MQTT subscribe error: ${err.message}`, err.stack);
-        else this.logger.log(`MQTT subscribed: ${topics.join(', ')}`);
+        if (err)
+          this.logger.error(`MQTT subscribe error: ${err.message}`, err.stack);
+        else this.logger.log(`MQTT subscribed: ${topics.join(", ")}`);
       });
     });
 
-    this.client.on('reconnect', () => this.logger.warn('MQTT reconnecting...'));
-    this.client.on('close', () => this.logger.warn('MQTT closed'));
-    this.client.on('error', (err) => this.logger.error(`MQTT error: ${err.message}`, err.stack));
+    this.client.on("reconnect", () => this.logger.warn("MQTT reconnecting..."));
+    this.client.on("close", () => this.logger.warn("MQTT closed"));
+    this.client.on("error", (err) =>
+      this.logger.error(`MQTT error: ${err.message}`, err.stack),
+    );
 
-    this.client.on('message', (topic, payload) => {
+    this.client.on("message", (topic, payload) => {
       void this.handleMessage(topic, payload);
     });
   }
@@ -64,7 +86,7 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
   }
 
   async publish(key: LogicalFeedKey, value: string) {
-    if (!this.client) throw new Error('MQTT client not connected');
+    if (!this.client) throw new Error("MQTT client not connected");
     const topic = getAdafruitFeedTopic(key);
     await new Promise<void>((resolve, reject) => {
       this.client?.publish(topic, value, { qos: 0, retain: false }, (err) => {
@@ -82,16 +104,20 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
         return;
       } catch (err) {
         lastError = err;
-        this.logger.warn(`MQTT publish retry ${attempt}/${retries} failed for ${key}`);
+        this.logger.warn(
+          `MQTT publish retry ${attempt}/${retries} failed for ${key}`,
+        );
       }
     }
-    throw lastError instanceof Error ? lastError : new Error('MQTT publish failed after retries');
+    throw lastError instanceof Error
+      ? lastError
+      : new Error("MQTT publish failed after retries");
   }
 
   private async handleMessage(topic: string, payload: Buffer) {
-    const message = payload.toString('utf8');
+    const message = payload.toString("utf8");
 
-    const username = process.env.ADAFRUIT_IO_USERNAME ?? '';
+    const username = process.env.ADAFRUIT_IO_USERNAME ?? "";
     const prefix = `${username}/feeds/`;
     if (!topic.startsWith(prefix)) {
       this.logger.debug(`Ignoring topic: ${topic}`);
@@ -110,29 +136,13 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
       receivedAt: new Date(),
     });
 
-    if (logical === 'status') {
+    if (logical === "status") {
       await this.tryHandleAckMessage(message);
     }
   }
 
   private resolveLogicalKeyFromFeedKey(feedKey: string): LogicalFeedKey | null {
-    const map: Array<[LogicalFeedKey, string]> = [
-      ['temp', process.env.FEED_TEMP_KEY ?? 'yolo-farm-temp'],
-      ['air_humidity', process.env.FEED_AIR_HUMIDITY_KEY ?? 'yolo-farm-air-humidity'],
-      ['soil_humidity', process.env.FEED_SOIL_HUMIDITY_KEY ?? 'yolo-farm-soil-humidity'],
-      ['light', process.env.FEED_LIGHT_KEY ?? 'yolo-farm-light'],
-      ['fan', process.env.FEED_FAN_KEY ?? 'yolo-farm-fan'],
-      ['pump', process.env.FEED_PUMP_KEY ?? 'yolo-farm-pump'],
-      ['speaker', process.env.FEED_SPEAKER_KEY ?? 'yolo-farm-speaker'],
-      ['rgb', process.env.FEED_RGB_KEY ?? 'yolo-farm-rgb'],
-      ['status', process.env.FEED_STATUS_KEY ?? 'yolo-farm-status'],
-      ['stream', process.env.FEED_STREAM_KEY ?? 'yolo-farm-stream'],
-    ];
-
-    for (const [logical, envFeedKey] of map) {
-      if (envFeedKey === feedKey) return logical;
-    }
-    return null;
+    return this.reverseFeedKeyMap.get(feedKey) ?? null;
   }
 
   private async tryHandleAckMessage(message: string) {
@@ -141,8 +151,8 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     // 1) ACK:<commandId>
     // 2) ACK:<commandId>:<anything>
     // 3) {"ackCommandId":"...","status":"ok"}
-    if (trimmed.startsWith('ACK:')) {
-      const parts = trimmed.split(':');
+    if (trimmed.startsWith("ACK:")) {
+      const parts = trimmed.split(":");
       const commandId = parts[1]?.trim();
       if (commandId) {
         await this.commandLogService.markAcked(commandId, trimmed, new Date());
@@ -153,11 +163,14 @@ export class MqttService implements OnModuleInit, OnModuleDestroy {
     try {
       const parsed = JSON.parse(trimmed) as { ackCommandId?: string };
       if (parsed?.ackCommandId) {
-        await this.commandLogService.markAcked(parsed.ackCommandId, trimmed, new Date());
+        await this.commandLogService.markAcked(
+          parsed.ackCommandId,
+          trimmed,
+          new Date(),
+        );
       }
     } catch {
       // ignore non-JSON status messages
     }
   }
 }
-

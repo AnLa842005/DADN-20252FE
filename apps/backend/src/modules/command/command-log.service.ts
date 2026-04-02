@@ -1,12 +1,15 @@
-import { Injectable } from '@nestjs/common';
-import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
-import { CommandLog } from './command-log.schema';
-import { LogicalFeedKey } from './mqtt.topics';
+import { Injectable } from "@nestjs/common";
+import { InjectModel } from "@nestjs/mongoose";
+import { Model } from "mongoose";
+import { CommandLog } from "./entity/command-log.schema";
+import { LogicalFeedKey } from "../mqtt/mqtt.topics";
 
 @Injectable()
 export class CommandLogService {
-  constructor(@InjectModel(CommandLog.name) private readonly commandLogModel: Model<CommandLog>) {}
+  constructor(
+    @InjectModel(CommandLog.name)
+    private readonly commandLogModel: Model<CommandLog>,
+  ) {}
 
   async createSent(params: {
     commandId: string;
@@ -19,7 +22,7 @@ export class CommandLogService {
       commandId: params.commandId,
       target: params.target,
       payload: params.payload,
-      status: 'sent',
+      status: "sent",
       issuedAt: params.issuedAt,
       idempotencyKey: params.idempotencyKey,
     });
@@ -31,7 +34,7 @@ export class CommandLogService {
         { commandId },
         {
           $set: {
-            status: 'failed',
+            status: "failed",
             error,
           },
         },
@@ -45,7 +48,7 @@ export class CommandLogService {
         { commandId },
         {
           $set: {
-            status: 'acked',
+            status: "acked",
             ackPayload,
             ackedAt,
           },
@@ -58,11 +61,19 @@ export class CommandLogService {
   }
 
   async findByIdempotencyKey(idempotencyKey: string) {
-    return this.commandLogModel.findOne({ idempotencyKey }).sort({ issuedAt: -1 }).lean().exec();
+    return this.commandLogModel
+      .findOne({ idempotencyKey })
+      .sort({ issuedAt: -1 })
+      .lean()
+      .exec();
   }
 
   async listLatest(limit = 100) {
-    return this.commandLogModel.find({}).sort({ issuedAt: -1 }).limit(limit).lean().exec();
+    return this.commandLogModel
+      .find({})
+      .sort({ issuedAt: -1 })
+      .limit(limit)
+      .lean()
+      .exec();
   }
 }
-

@@ -1,6 +1,7 @@
-import { Prop, Schema, SchemaFactory } from '@nestjs/mongoose';
-import { HydratedDocument } from 'mongoose';
-import { TelemetryType, ThresholdLevel } from './telemetry.types';
+import { Prop, Schema, SchemaFactory } from "@nestjs/mongoose";
+import { HydratedDocument } from "mongoose";
+import { ALL_LOGICAL_KEYS } from "../../mqtt/mqtt.topics";
+import { TelemetryType, ThresholdLevel } from "../telemetry.types";
 
 export type TelemetryDocument = HydratedDocument<Telemetry>;
 
@@ -10,18 +11,7 @@ export class Telemetry {
     required: true,
     index: true,
     type: String,
-    enum: [
-      'temp',
-      'air_humidity',
-      'soil_humidity',
-      'light',
-      'fan',
-      'pump',
-      'speaker',
-      'rgb',
-      'status',
-      'stream',
-    ],
+    enum: ALL_LOGICAL_KEYS,
   })
   type!: TelemetryType;
 
@@ -39,8 +29,8 @@ export class Telemetry {
 
   @Prop({
     type: String,
-    enum: ['low', 'normal', 'high', 'unknown'],
-    default: 'unknown',
+    enum: ["low", "normal", "high", "unknown"],
+    default: "unknown",
   })
   thresholdLevel?: ThresholdLevel;
 
@@ -50,4 +40,3 @@ export class Telemetry {
 
 export const TelemetrySchema = SchemaFactory.createForClass(Telemetry);
 TelemetrySchema.index({ type: 1, receivedAt: -1 });
-

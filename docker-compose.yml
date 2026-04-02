@@ -1,0 +1,17 @@
+services:
+  # MongoDB service for the backend
+  mongo:
+    image: mongo:6.0 # Using a specific version is better than 'latest' for stability
+    container_name: yolo-farm-mongo
+    ports:
+      # Expose MongoDB on the default port
+      - "27017:27017"
+    volumes:
+      # Persist database data
+      - mongo-data:/data/db
+    restart: unless-stopped
+
+volumes:
+  # Define the named volume for data persistence
+  mongo-data:
+    driver: local
