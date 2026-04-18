@@ -25,6 +25,7 @@ import {
   type ManagedDevice,
   updateManagedDevicePower,
 } from "../services/api";
+import { getTokens } from "../services/auth";
 import type { NavKey } from "../types/dashboard";
 
 const ACCENT_GREEN = "#22ff66";
@@ -61,6 +62,19 @@ export default function DevicesScreen() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState("");
   const [pendingId, setPendingId] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const tokens = await getTokens();
+      if (mounted && !tokens) {
+        router.replace("/");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;

@@ -16,6 +16,7 @@ import Animated, {
   useSharedValue,
   withTiming,
 } from "react-native-reanimated";
+import { logout } from "../services/auth";
 
 const ANIM_MS = 240;
 const MENU_GAP = 8;
@@ -94,9 +95,15 @@ export function UserMenu({ userName }: UserMenuProps) {
     closeMenu();
   };
 
-  const goLogout = () => {
-    router.replace("/");
-    closeMenu();
+  const goLogout = async () => {
+    try {
+      await logout();
+    } catch {
+      // Swallow error to avoid trapping user in authenticated area.
+    } finally {
+      router.replace("/");
+      closeMenu();
+    }
   };
 
   return (
