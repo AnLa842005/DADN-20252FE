@@ -12,12 +12,15 @@ import { initialDeviceSettings } from "../mock/settings";
 import { userProfile } from "../mock/user";
 import {
   buildControlMapFromDashboard,
+  getAlertsLive,
   getDashboard,
   getFeatures,
+  getQuickStatsLive,
   getSettings,
   getUser,
   updateSetting,
 } from "../services/api";
+import { getTokens } from "../services/auth";
 import type { ControlItem, DashboardData, DeviceType, NavKey } from "../types/dashboard";
 
 const ACCENT_GREEN = "#22ff66";
@@ -83,9 +86,48 @@ export default function HomeScreen() {
     [dashboard]
   );
 
+  const [clock, setClock] = useState(() => new Date());
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const tokens = await getTokens();
+      if (mounted && !tokens) {
+        router.replace("/");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
+
+  useEffect(() => {
+    const tick = setInterval(() => setClock(new Date()), 30_000);
+    return () => clearInterval(tick);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
-    (async () => {
+    let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+    const hydrateLiveHome = async () => {
+      try {
+        const [stats, alerts] = await Promise.all([getQuickStatsLive(), getAlertsLive(40)]);
+        if (cancelled) return;
+        setDashboard((prev) => ({
+          ...prev,
+          home: {
+            ...prev.home,
+            stats,
+            alerts,
+          },
+        }));
+      } catch (e) {
+        console.log("Live dashboard refresh failed", e);
+      }
+    };
+
+    void (async () => {
       try {
         const [dash, settings, profile] = await Promise.all([
           getDashboard(),
@@ -96,15 +138,25 @@ export default function HomeScreen() {
         setDashboard(dash);
         setControlMap(buildControlMapFromDashboard(dash, settings));
         setUserName(profile.displayName);
+        await hydrateLiveHome();
         await getFeatures().catch(() => undefined);
       } catch (e) {
         console.log("Initial dashboard load failed", e);
+        await hydrateLiveHome();
       } finally {
         if (!cancelled) setBootstrapPending(false);
       }
+
+      if (!cancelled) {
+        pollTimer = setInterval(() => {
+          void hydrateLiveHome();
+        }, 10_000);
+      }
     })();
+
     return () => {
       cancelled = true;
+      if (pollTimer) clearInterval(pollTimer);
     };
   }, []);
 
@@ -289,8 +341,16 @@ export default function HomeScreen() {
               ) : null}
             </View>
             <View style={styles.timeWrap}>
-              <Text style={styles.timeText}>7:00 AM</Text>
-              <Text style={styles.dateText}>20/03/26</Text>
+              <Text style={styles.timeText}>
+                {clock.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+              </Text>
+              <Text style={styles.dateText}>
+                {clock.toLocaleDateString(undefined, {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "2-digit",
+                })}
+              </Text>
             </View>
           </View>
 

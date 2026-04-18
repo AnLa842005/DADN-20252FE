@@ -17,6 +17,7 @@ import { UserMenu } from "../components/UserMenu";
 import { dashboardPayload, sidebarItems } from "../mock/dashboard";
 import { userProfile } from "../mock/user";
 import { getTelemetrySeries, getUser, type TelemetryPoint } from "../services/api";
+import { getTokens } from "../services/auth";
 import type { NavKey } from "../types/dashboard";
 
 const ACCENT_GREEN = "#22ff66";
@@ -51,6 +52,19 @@ export default function AnalyticsScreen() {
   const [activeTab, setActiveTab] = useState<TabValue>("temp");
   const [points, setPoints] = useState<TelemetryPoint[]>([]);
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    void (async () => {
+      const tokens = await getTokens();
+      if (mounted && !tokens) {
+        router.replace("/");
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [router]);
 
   useEffect(() => {
     let cancelled = false;
