@@ -36,6 +36,7 @@ async function bootstrap() {
       'Authorization',
       'Accept',
       'Last-Event-ID',
+      'idempotency-key',
     ],
   });
 
