@@ -1,11 +1,20 @@
-import { dashboardPayload } from "../mock/dashboard";
-import { features } from "../mock/features";
-import { initialDeviceSettings } from "../mock/settings";
 import type { AlertItem, ControlItem, DashboardData, NavKey, StatItem } from "../types/dashboard";
 import { apiFetch } from "./auth";
+import {
+  buildManagedDevicePowerRequest,
+  getDashboardControlRgbColor,
+  getDashboardControlTarget,
+  listDashboardControlIdsByTarget,
+  type DevicePowerValue,
+} from "./deviceRegistry";
+import {
+  createDashboardSeed,
+  createDeviceSettingsSeed,
+  createFeaturesSeed,
+} from "./mockData";
+import { getApiBaseUrl, shouldUseMocks } from "./runtimeConfig";
 
 type DeviceSettings = Record<string, boolean>;
-type DevicePowerValue = "ON" | "OFF";
 type TelemetryType = "temp" | "air_humidity" | "soil_humidity" | "light";
 
 export type UserProfile = {
@@ -13,6 +22,8 @@ export type UserProfile = {
   email?: string;
   id?: string;
 };
+
+export type EditableSettings = DeviceSettings;
 
 type LatestTelemetry = {
   _id: string;
@@ -55,38 +66,120 @@ export type ManagedDevice = {
   name: string;
   autoMode: boolean;
   power: boolean;
+  desiredPower: boolean;
+  actualPower: boolean | null;
+  lastCommandStatus: "idle" | "sent" | "acked" | "timeout" | "failed";
+  lastCommandAt: string | null;
+  lastAckAt: string | null;
+  lastSeenAt: string | null;
+  connectionStatus: "online" | "offline" | "unknown";
 };
 
-let deviceSettings: DeviceSettings = { ...initialDeviceSettings };
+export type AutomationSensorKey = "soilMoisture" | "temperature" | "light";
+
+export type AutomationThreshold = {
+  operator: "<" | ">";
+  value: number;
+};
+
+export type AutomationRule = {
+  deviceId: string;
+  target: "pump" | "fan" | "rgb";
+  sensorKey: AutomationSensorKey;
+  enabled: boolean;
+  turnOnWhen: AutomationThreshold;
+  turnOffWhen: AutomationThreshold;
+  onPayload?: string;
+  offPayload?: string;
+};
+
+export type AutomationLog = {
+  id: string;
+  deviceId: string;
+  target: "pump" | "fan" | "rgb";
+  sensorKey: AutomationSensorKey;
+  sensorValue: number;
+  action: "ON" | "OFF";
+  payload: string;
+  reason: string;
+  status: "sent" | "failed";
+  createdAt: string;
+  commandId?: string;
+  error?: string;
+};
+
+export type AppFeatures = ReturnType<typeof createFeaturesSeed>;
+
+let deviceSettings: DeviceSettings = createDeviceSettingsSeed();
 let managedDevices: ManagedDevice[] = [
-  { id: "fan", name: "Fan", autoMode: true, power: false },
-  { id: "pump", name: "Pump (Water)", autoMode: true, power: true },
-  { id: "speaker", name: "Speaker", autoMode: false, power: false },
+  {
+    id: "fan",
+    name: "Fan",
+    autoMode: true,
+    power: false,
+    desiredPower: false,
+    actualPower: null,
+    lastCommandStatus: "idle",
+    lastCommandAt: null,
+    lastAckAt: null,
+    lastSeenAt: null,
+    connectionStatus: "unknown",
+  },
+  {
+    id: "pump",
+    name: "Pump (Water)",
+    autoMode: true,
+    power: true,
+    desiredPower: true,
+    actualPower: null,
+    lastCommandStatus: "idle",
+    lastCommandAt: null,
+    lastAckAt: null,
+    lastSeenAt: null,
+    connectionStatus: "unknown",
+  },
+  {
+    id: "speaker",
+    name: "Speaker",
+    autoMode: false,
+    power: false,
+    desiredPower: false,
+    actualPower: null,
+    lastCommandStatus: "idle",
+    lastCommandAt: null,
+    lastAckAt: null,
+    lastSeenAt: null,
+    connectionStatus: "unknown",
+  },
+  {
+    id: "rgb",
+    name: "Grow Light",
+    autoMode: false,
+    power: false,
+    desiredPower: false,
+    actualPower: null,
+    lastCommandStatus: "idle",
+    lastCommandAt: null,
+    lastAckAt: null,
+    lastSeenAt: null,
+    connectionStatus: "unknown",
+  },
 ];
 
 /** Dashboard rows that share the single `pump` MQTT feed — ON if any row is on. */
-const PUMP_CONTROL_IDS = new Set([
-  "pump-1",
-  "pump-2",
-  "schedule-1",
-  "dev-1",
-  "dev-2",
-]);
+const PUMP_CONTROL_IDS = listDashboardControlIdsByTarget("pump");
 
 /** Cooling fan row on Analytics → `fan` command. */
-const FAN_CONTROL_IDS = new Set(["schedule-2"]);
+const FAN_CONTROL_IDS = listDashboardControlIdsByTarget("fan");
 
 /**
  * Light rows mapped to one RGB feed (`/commands/rgb`). When multiple are on, RGB channels add (capped at 255).
  */
-const RGB_LED_COLORS: Record<string, { r: number; g: number; b: number }> = {
-  "led-1": { r: 255, g: 0, b: 0 },
-  "led-2": { r: 0, g: 255, b: 0 },
-  "led-3": { r: 0, g: 0, b: 255 },
-  "schedule-3": { r: 200, g: 200, b: 255 },
-  "dev-3": { r: 255, g: 255, b: 0 },
-  "dev-4": { r: 255, g: 128, b: 0 },
-};
+const RGB_LED_COLORS = Object.fromEntries(
+  listDashboardControlIdsByTarget("rgb")
+    .map((id) => [id, getDashboardControlRgbColor(id)])
+    .filter((entry): entry is [string, { r: number; g: number; b: number }] => Boolean(entry[1]))
+);
 
 function pumpAnyOn(): boolean {
   for (const id of PUMP_CONTROL_IDS) {
@@ -124,13 +217,6 @@ async function postRgbMerged(): Promise<void> {
     }
   }
   await apiPost("/commands/rgb", { r, g, b, format: "csv" });
-}
-
-function getApiBaseUrl(): string {
-  if (typeof process !== "undefined" && process.env && process.env.EXPO_PUBLIC_API_BASE_URL) {
-    return process.env.EXPO_PUBLIC_API_BASE_URL;
-  }
-  return "http://localhost:3001";
 }
 
 async function apiGet<T>(path: string, query?: Record<string, string | undefined>): Promise<T> {
@@ -176,8 +262,32 @@ async function apiPost<T>(
   return (await res.json()) as T;
 }
 
+async function apiPatch<T>(path: string, body: unknown): Promise<T> {
+  const url = `${getApiBaseUrl().replace(/\/$/, "")}/${path.replace(/^\//, "")}`;
+  const res = await apiFetch(url, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    throw new Error(`PATCH ${url} failed with status ${res.status}`);
+  }
+  return (await res.json()) as T;
+}
+
 function cloneDashboard(): Record<NavKey, DashboardData> {
-  return JSON.parse(JSON.stringify(dashboardPayload)) as Record<NavKey, DashboardData>;
+  return createDashboardSeed();
+}
+
+function sanitizeSettingsPatch(
+  payload: Partial<EditableSettings>
+): Record<string, boolean> {
+  return Object.fromEntries(
+    Object.entries(payload).filter((entry): entry is [string, boolean] => typeof entry[1] === "boolean")
+  );
 }
 
 function applySettingsToControls(
@@ -202,10 +312,20 @@ function applySettingsToControls(
 }
 
 export async function getDashboard(): Promise<Record<NavKey, DashboardData>> {
-  return cloneDashboard();
+  if (shouldUseMocks()) {
+    return cloneDashboard();
+  }
+  try {
+    return await apiGet<Record<NavKey, DashboardData>>("/dashboard");
+  } catch {
+    return cloneDashboard();
+  }
 }
 
 export async function getUser(): Promise<UserProfile> {
+  if (shouldUseMocks()) {
+    return { displayName: "User" };
+  }
   try {
     const me = await apiGet<{ id: string; email: string; displayName: string }>("/me");
     return { id: me.id, email: me.email, displayName: me.displayName };
@@ -214,11 +334,49 @@ export async function getUser(): Promise<UserProfile> {
   }
 }
 
-export async function getFeatures(): Promise<typeof features> {
-  return { ...features };
+export async function updateUserProfile(
+  payload: Pick<UserProfile, "displayName">
+): Promise<UserProfile> {
+  if (shouldUseMocks()) {
+    return { displayName: payload.displayName.trim() || "User" };
+  }
+  return apiPatch<UserProfile>("/me", payload);
+}
+
+export async function getFeatures(): Promise<AppFeatures> {
+  if (shouldUseMocks()) {
+    return createFeaturesSeed();
+  }
+  try {
+    return await apiGet<AppFeatures>("/features");
+  } catch {
+    return createFeaturesSeed();
+  }
 }
 
 export async function getSettings(): Promise<DeviceSettings> {
+  if (shouldUseMocks()) {
+    return { ...deviceSettings };
+  }
+  try {
+    const nextSettings = await apiGet<DeviceSettings>("/settings");
+    deviceSettings = { ...deviceSettings, ...nextSettings };
+  } catch {
+    // Keep local fallback for non-wired environments.
+  }
+  return { ...deviceSettings };
+}
+
+export async function updateUserSettings(
+  payload: Partial<EditableSettings>
+): Promise<EditableSettings> {
+  const sanitizedPayload = sanitizeSettingsPatch(payload);
+  if (shouldUseMocks()) {
+    deviceSettings = { ...deviceSettings, ...sanitizedPayload };
+    return { ...deviceSettings };
+  }
+  const nextSettings = await apiPatch<EditableSettings>("/settings", sanitizedPayload);
+  deviceSettings = { ...deviceSettings, ...nextSettings };
   return { ...deviceSettings };
 }
 
@@ -226,13 +384,18 @@ export async function updateSetting(key: string, value: boolean): Promise<boolea
   const snapshot: DeviceSettings = { ...deviceSettings };
   deviceSettings = { ...deviceSettings, [key]: value };
   try {
-    if (PUMP_CONTROL_IDS.has(key)) {
+    if (shouldUseMocks()) {
+      return value;
+    }
+    const target = getDashboardControlTarget(key);
+    if (target === "pump") {
       await postPumpAggregate();
-    } else if (FAN_CONTROL_IDS.has(key)) {
+    } else if (target === "fan") {
       await postFanAggregate();
-    } else if (Object.hasOwn(RGB_LED_COLORS, key)) {
+    } else if (target === "rgb") {
       await postRgbMerged();
     }
+    await apiPatch("/settings", { [key]: value });
     return value;
   } catch (e) {
     deviceSettings = snapshot;
@@ -313,40 +476,68 @@ export async function getAlertsLive(limit = 50): Promise<AlertItem[]> {
 }
 
 export async function getManagedDevices(): Promise<ManagedDevice[]> {
+  if (shouldUseMocks()) {
+    return managedDevices.map((device) => ({ ...device }));
+  }
+  try {
+    managedDevices = await apiGet<ManagedDevice[]>("/devices");
+  } catch {
+    // Keep local fallback for non-wired environments.
+  }
   return managedDevices.map((device) => ({ ...device }));
-}
-
-function commandPathFromDeviceId(id: string): string | null {
-  if (id === "fan") return "/commands/fan";
-  if (id === "pump") return "/commands/pump";
-  if (id === "speaker") return "/commands/speaker";
-  return null;
 }
 
 export async function updateManagedDevicePower(
   id: string,
   value: DevicePowerValue
 ): Promise<boolean> {
-  const path = commandPathFromDeviceId(id);
-  if (!path) {
+  if (shouldUseMocks()) {
     managedDevices = managedDevices.map((device) =>
-      device.id === id ? { ...device, power: value === "ON" } : device
+      device.id === id
+        ? {
+            ...device,
+            power: value === "ON",
+            desiredPower: value === "ON",
+            lastCommandStatus: "sent",
+            lastCommandAt: new Date().toISOString(),
+          }
+        : device
     );
     return value === "ON";
   }
 
-  await apiPost(path, { value });
-  managedDevices = managedDevices.map((device) =>
-    device.id === id ? { ...device, power: value === "ON" } : device
-  );
+  const request = buildManagedDevicePowerRequest(id, value);
+  if (!request) {
+    throw new Error(`No device power endpoint configured for ${id}`);
+  }
+
+  await apiPost(request.path, request.body);
   return value === "ON";
 }
 
 export async function toggleManagedDeviceAutoMode(id: string): Promise<ManagedDevice[]> {
-  managedDevices = managedDevices.map((device) =>
-    device.id === id ? { ...device, autoMode: !device.autoMode } : device
-  );
+  if (shouldUseMocks()) {
+    managedDevices = managedDevices.map((device) =>
+      device.id === id ? { ...device, autoMode: !device.autoMode } : device
+    );
+    return managedDevices.map((device) => ({ ...device }));
+  }
+  managedDevices = await apiPatch<ManagedDevice[]>("/devices/auto-mode", { id });
   return managedDevices.map((device) => ({ ...device }));
+}
+
+export async function getAutomationRules(): Promise<AutomationRule[]> {
+  if (shouldUseMocks()) {
+    return [];
+  }
+  return apiGet<AutomationRule[]>("/automation/rules");
+}
+
+export async function getAutomationLogs(): Promise<AutomationLog[]> {
+  if (shouldUseMocks()) {
+    return [];
+  }
+  return apiGet<AutomationLog[]>("/automation/logs");
 }
 
 export function buildControlMapFromDashboard(

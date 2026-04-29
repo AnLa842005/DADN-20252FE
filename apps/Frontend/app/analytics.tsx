@@ -14,10 +14,9 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 
 import { UserMenu } from "../components/UserMenu";
-import { dashboardPayload, sidebarItems } from "../mock/dashboard";
-import { userProfile } from "../mock/user";
-import { getTelemetrySeries, getUser, type TelemetryPoint } from "../services/api";
+import { getDashboard, getTelemetrySeries, getUser, type TelemetryPoint } from "../services/api";
 import { getTokens } from "../services/auth";
+import { getSeedPageTitle, sidebarItems } from "../services/mockData";
 import type { NavKey } from "../types/dashboard";
 
 const ACCENT_GREEN = "#22ff66";
@@ -48,10 +47,14 @@ export default function AnalyticsScreen() {
   const isDesktop = width >= 960;
   const chartWidth = Math.min(Math.max(width - (isDesktop ? 176 + 72 : 72), 280), 980);
 
-  const [userName, setUserName] = useState(userProfile.displayName);
+  const [userName, setUserName] = useState("User");
+  const [userEmail, setUserEmail] = useState<string | undefined>();
   const [activeTab, setActiveTab] = useState<TabValue>("temp");
   const [points, setPoints] = useState<TelemetryPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [pageTitle, setPageTitle] = useState(getSeedPageTitle(activeNav));
+  const [clock, setClock] = useState(() => new Date());
 
   useEffect(() => {
     let mounted = true;
@@ -71,14 +74,24 @@ export default function AnalyticsScreen() {
     (async () => {
       try {
         const profile = await getUser();
-        if (!cancelled) setUserName(profile.displayName);
+        const dashboard = await getDashboard();
+        if (!cancelled) {
+          setUserName(profile.displayName);
+          setUserEmail(profile.email);
+          setPageTitle(dashboard.analytics.title);
+        }
       } catch {
-        /* keep mock name */
+        if (!cancelled) setErrorMessage("Profile or page metadata is temporarily unavailable.");
       }
     })();
     return () => {
       cancelled = true;
     };
+  }, []);
+
+  useEffect(() => {
+    const tick = setInterval(() => setClock(new Date()), 30_000);
+    return () => clearInterval(tick);
   }, []);
 
   useEffect(() => {
@@ -89,11 +102,13 @@ export default function AnalyticsScreen() {
         const data = await getTelemetrySeries(activeTab);
         if (mounted) {
           setPoints(data);
+          setErrorMessage(null);
         }
       } catch (error) {
         console.log("Failed to load telemetry", error);
         if (mounted) {
           setPoints([]);
+          setErrorMessage("Unable to load telemetry right now.");
         }
       } finally {
         if (mounted) {
@@ -182,7 +197,7 @@ export default function AnalyticsScreen() {
         </View>
       </View>
 
-      <UserMenu userName={userName} />
+      <UserMenu userName={userName} userEmail={userEmail} />
     </View>
   );
 
@@ -214,8 +229,6 @@ export default function AnalyticsScreen() {
     </ScrollView>
   );
 
-  const pageTitle = dashboardPayload[activeNav].title;
-
   return (
     <SafeAreaView style={styles.safeArea}>
       <View style={styles.page}>
@@ -225,8 +238,16 @@ export default function AnalyticsScreen() {
           <View style={styles.topBar}>
             <Text style={styles.pageTitle}>{pageTitle}</Text>
             <View style={styles.timeWrap}>
-              <Text style={styles.timeText}>7:00 AM</Text>
-              <Text style={styles.dateText}>20/03/26</Text>
+              <Text style={styles.timeText}>
+                {clock.toLocaleTimeString(undefined, { hour: "numeric", minute: "2-digit" })}
+              </Text>
+              <Text style={styles.dateText}>
+                {clock.toLocaleDateString(undefined, {
+                  day: "2-digit",
+                  month: "2-digit",
+                  year: "2-digit",
+                })}
+              </Text>
             </View>
           </View>
 
@@ -237,6 +258,7 @@ export default function AnalyticsScreen() {
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
           >
+            {errorMessage ? <Text style={styles.errorBanner}>{errorMessage}</Text> : null}
             <Text style={styles.introText}>
               Live telemetry overview for your smart farm.
             </Text>
@@ -267,6 +289,10 @@ export default function AnalyticsScreen() {
               {loading && points.length === 0 ? (
                 <View style={styles.loadingWrap}>
                   <ActivityIndicator size="large" color="#22c55e" />
+                </View>
+              ) : !loading && points.length === 0 ? (
+                <View style={styles.loadingWrap}>
+                  <Text style={styles.emptyText}>No telemetry samples available for this sensor yet.</Text>
                 </View>
               ) : (
                 <View style={styles.chartSection}>
@@ -515,6 +541,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
+  emptyText: {
+    fontSize: 14,
+    color: "#6b7280",
+    textAlign: "center",
+  },
   chartSection: {
     gap: 24,
   },
@@ -593,5 +624,14 @@ const styles = StyleSheet.create({
     fontSize: 22,
     fontWeight: "800",
     color: "#11261f",
+  },
+  errorBanner: {
+    marginBottom: 16,
+    borderRadius: 10,
+    backgroundColor: "#fee2e2",
+    color: "#991b1b",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 13,
   },
 });

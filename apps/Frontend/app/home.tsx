@@ -7,9 +7,6 @@ import { SafeAreaView } from "react-native-safe-area-context";
 
 import { Toggle } from "../components/Toggle";
 import { UserMenu } from "../components/UserMenu";
-import { dashboardPayload, sidebarItems } from "../mock/dashboard";
-import { initialDeviceSettings } from "../mock/settings";
-import { userProfile } from "../mock/user";
 import {
   buildControlMapFromDashboard,
   getAlertsLive,
@@ -20,6 +17,12 @@ import {
   getUser,
   updateSetting,
 } from "../services/api";
+import {
+  createDashboardSeed,
+  createDeviceSettingsSeed,
+  sidebarItems,
+} from "../services/mockData";
+import { DASHBOARD_MODE_UNWIRED_REASON } from "../services/deviceRegistry";
 import { getTokens } from "../services/auth";
 import type { ControlItem, DashboardData, DeviceType, NavKey } from "../types/dashboard";
 
@@ -54,6 +57,7 @@ function DeviceIcon({ type }: { type: DeviceType }) {
 }
 
 export default function HomeScreen() {
+  const dashboardSeed = createDashboardSeed();
   const router = useRouter();
   const { width } = useWindowDimensions();
   const isDesktop = width >= 960;
@@ -61,13 +65,15 @@ export default function HomeScreen() {
   const statsPerRow = isDesktop ? 4 : isTablet ? 2 : 1;
   const statWidth = `${100 / statsPerRow - (statsPerRow > 1 ? 2 : 0)}%` as const;
 
-  const [dashboard, setDashboard] = useState<Record<NavKey, DashboardData>>(dashboardPayload);
+  const [dashboard, setDashboard] = useState<Record<NavKey, DashboardData>>(dashboardSeed);
   const [controlMap, setControlMap] = useState<Record<NavKey, ControlItem[]>>(() =>
-    buildControlMapFromDashboard(dashboardPayload, initialDeviceSettings)
+    buildControlMapFromDashboard(dashboardSeed, createDeviceSettingsSeed())
   );
-  const [userName, setUserName] = useState(userProfile.displayName);
+  const [userName, setUserName] = useState("User");
+  const [userEmail, setUserEmail] = useState<string | undefined>();
   const [bootstrapPending, setBootstrapPending] = useState(true);
   const [pendingToggleId, setPendingToggleId] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const [activeNav, setActiveNav] = useState<NavKey>("home");
   const [alertPageMap, setAlertPageMap] = useState<Record<NavKey, number>>({
@@ -138,10 +144,16 @@ export default function HomeScreen() {
         setDashboard(dash);
         setControlMap(buildControlMapFromDashboard(dash, settings));
         setUserName(profile.displayName);
+        setUserEmail(profile.email);
         await hydrateLiveHome();
-        await getFeatures().catch(() => undefined);
+        await getFeatures().catch(() => {
+          if (!cancelled) setErrorMessage("Feature settings are temporarily unavailable.");
+        });
       } catch (e) {
         console.log("Initial dashboard load failed", e);
+        if (!cancelled) {
+          setErrorMessage("Some dashboard data is unavailable. Showing fallback content.");
+        }
         await hydrateLiveHome();
       } finally {
         if (!cancelled) setBootstrapPending(false);
@@ -178,9 +190,11 @@ export default function HomeScreen() {
       setPendingToggleId(id);
       try {
         await updateSetting(id, next);
+        setErrorMessage(null);
       } catch (e) {
         console.log("updateSetting failed", e);
         setControlMap(snapshot);
+        setErrorMessage("Unable to update this control right now.");
       } finally {
         setPendingToggleId(null);
       }
@@ -218,24 +232,9 @@ export default function HomeScreen() {
     [activeControlPage, totalControlPages]
   );
 
-  const updateControl = (
-    controlId: string,
-    updater: (item: ControlItem) => ControlItem
-  ) => {
-    setControlMap((current) => ({
-      ...current,
-      [activeNav]: current[activeNav].map((item) =>
-        item.id === controlId ? updater(item) : item
-      ),
-    }));
-  };
-
   const toggleMode = (controlId: string) => {
-    updateControl(controlId, (item) => ({
-      ...item,
-      mode: item.mode === "auto" ? "manually" : "auto",
-      state: item.enabled ? "online" : "offline",
-    }));
+    void controlId;
+    setErrorMessage(DASHBOARD_MODE_UNWIRED_REASON);
   };
 
   const handleNavPress = (key: NavKey) => {
@@ -293,7 +292,7 @@ export default function HomeScreen() {
         </View>
       </View>
 
-      <UserMenu userName={userName} />
+      <UserMenu userName={userName} userEmail={userEmail} />
     </View>
   );
 
@@ -361,6 +360,7 @@ export default function HomeScreen() {
             contentContainerStyle={styles.content}
             showsVerticalScrollIndicator={false}
           >
+            {errorMessage ? <Text style={styles.errorBanner}>{errorMessage}</Text> : null}
             <Text style={styles.sectionTitle}>Quick Stats</Text>
             <View style={styles.statsGrid}>
               {activeData.stats.map((item) => (
@@ -375,6 +375,9 @@ export default function HomeScreen() {
             <View style={[styles.sectionRow, !isTablet && styles.sectionRowStack]}>
               <View style={styles.leftColumn}>
                 <Text style={styles.sectionTitle}>Quick Control</Text>
+                <Text style={styles.helperNote}>
+                  Quick Control sends commands to backend. This view does not yet show confirmed device ack.
+                </Text>
                 <View style={styles.panel}>
                   {pagedControls.map((item, index) => (
                     <View
@@ -651,6 +654,12 @@ const styles = StyleSheet.create({
     color: "#111111",
     marginBottom: 18,
   },
+  helperNote: {
+    marginTop: -8,
+    marginBottom: 14,
+    fontSize: 12,
+    color: "#6b7280",
+  },
   statsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
@@ -820,5 +829,14 @@ const styles = StyleSheet.create({
   },
   pageDotTextActive: {
     fontWeight: "700",
+  },
+  errorBanner: {
+    marginBottom: 16,
+    borderRadius: 10,
+    backgroundColor: "#fee2e2",
+    color: "#991b1b",
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    fontSize: 13,
   },
 });
